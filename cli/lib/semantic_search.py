@@ -3,7 +3,7 @@ from collections import defaultdict
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
-from .search_utils import load_movies
+from .search_utils import DEFAULT_SEARCH_LIMIT, load_movies
 
 
 class SemanticSearch:
@@ -29,6 +29,7 @@ class SemanticSearch:
             movie_list.append(f"{doc['title']}: {doc['description']}")
 
         self.embeddings = self.model.encode(movie_list, show_progress_bar=True)
+        np.save("cache/movie_embeddings.npy", self.embeddings)
         return self.embeddings
 
     def load_or_create_embeddings(self, documents: list[dict]):
@@ -44,6 +45,33 @@ class SemanticSearch:
                 return self.embeddings
 
         return self.build_embeddings(documents)
+
+    def search(self, query, limit):
+        if self.embeddings is None or self.embeddings.size == 0:
+            raise ValueError(
+                "No embeddings loaded. Call `load_or_create_embeddings` first."
+            )
+
+        query_embedding = self.generate_embedding(query)
+
+        similarities = []
+        for i, doc_embedding in enumerate(self.embeddings):
+            similarity_score = cosine_similarity(query_embedding, doc_embedding)
+            similarities.append((similarity_score, self.documents[i]))
+
+        similarities.sort(key=lambda x: x[0], reverse=True)
+
+        results = []
+        for i in range(limit):
+            results.append(
+                {
+                    "score": similarities[i][0],
+                    "title": similarities[i][1]["title"],
+                    "description": similarities[i][1]["description"],
+                }
+            )
+
+        return results
 
 
 def verify_model() -> None:
@@ -62,35 +90,51 @@ def verify_embeddings() -> None:
     )
 
 
+def semantic_search(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> None:
+    search_instance = SemanticSearch()
+    documents = load_movies()
+    search_instance.load_or_create_embeddings(documents)
+
+    results = search_instance.search(query, limit)
+
+    print(f"Query: {query}")
+    print(f"Top {len(results)} results:\n")
+
+    for i, result in enumerate(results, start=1):
+        print(f"{i}. {result['title']} (score: {result['score']:.4f})")
+        print(f"    {result['description'][:100]}...\n")
+
+
 def embed_text(text: str) -> None:
     search_instance = SemanticSearch()
-    embedding = search_instance.generate_embedding(text)
-    print(f"Text: {text}")
+    embedding = None
+    try:
+        embedding = search_instance.generate_embedding(text)
+    except ValueError:
+        print(
+            "There was an error when generating embedding, the text was empty or whitespace"
+        )
+
+    if embedding:
+        print(f"Text: {text}")
+        print(f"First 3 dimensions: {embedding[:3]}")
+        print(f"Dimensions: {embedding.shape[0]}")
+
+
+def embed_user_query(query: str):
+    search_instance = SemanticSearch()
+    embedding = search_instance.generate_embedding(query)
+    print(f"Query: {query}")
     print(f"First 3 dimensions: {embedding[:3]}")
-    print(f"Dimensions: {embedding.shape[0]}")
+    print(f"Shape: {embedding.shape}")
 
 
-def add_vectors(vec1: list[float], vec2: list[float]) -> list[float]:
-    vec1_len = len(vec1)
-    vec2_len = len(vec2)
-    if vec1_len != vec2_len:
-        raise ValueError("provided vectors with different lengths")
+def cosine_similarity(vec1: np.ndarray, vec2: np.ndarray) -> float:
+    dot_product = np.dot(vec1, vec2)
+    norm1 = np.linalg.norm(vec1)
+    norm2 = np.linalg.norm(vec2)
 
-    result_vec: list[float] = []
-    for i in range(vec1_len):
-        result_vec.append(vec1[i] + vec2[i])
+    if norm1 == 0 or norm2 == 0:
+        return 0.0
 
-    return result_vec
-
-
-def subtract_vectors(vec1: list[float], vec2: list[float]) -> list[float]:
-    vec1_len = len(vec1)
-    vec2_len = len(vec2)
-    if vec1_len != vec2_len:
-        raise ValueError("provided vectors with different lengths")
-
-    result_vec: list[float] = []
-    for i in range(vec1_len):
-        result_vec.append(vec1[i] - vec2[i])
-
-    return result_vec
+    return dot_product / (norm1 * norm2)
