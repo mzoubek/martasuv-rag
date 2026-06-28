@@ -2,6 +2,8 @@ import os
 import json
 
 DEFAULT_SEARCH_LIMIT = 5
+DEFAULT_CHUNK_SIZE = 200
+DEFAULT_OVERLAP_SIZE = 0
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
 DATA_PATH = os.path.join(PROJECT_ROOT, "data", "movies.json")
 STOPWORDS_PATH = os.path.join(PROJECT_ROOT, "data", "stopwords.txt")

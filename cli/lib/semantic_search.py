@@ -3,7 +3,12 @@ from collections import defaultdict
 from sentence_transformers import SentenceTransformer
 import numpy as np
 
-from .search_utils import DEFAULT_SEARCH_LIMIT, load_movies
+from .search_utils import (
+    DEFAULT_SEARCH_LIMIT,
+    DEFAULT_CHUNK_SIZE,
+    DEFAULT_OVERLAP_SIZE,
+    load_movies,
+)
 
 
 class SemanticSearch:
@@ -103,6 +108,30 @@ def semantic_search(query: str, limit: int = DEFAULT_SEARCH_LIMIT) -> None:
     for i, result in enumerate(results, start=1):
         print(f"{i}. {result['title']} (score: {result['score']:.4f})")
         print(f"    {result['description'][:100]}...\n")
+
+
+def fixed_size_chunking(
+    text: str,
+    chunk_size: int = DEFAULT_CHUNK_SIZE,
+    overlap_size: int = DEFAULT_OVERLAP_SIZE,
+) -> list[str]:
+    words: list[str] = text.split()
+    chunks: list[str] = []
+
+    for i in range(0, len(words), chunk_size):
+        # On first iteration use first word else grab words to create overlap
+        chunk_words = words[i if i == 0 else i - overlap_size : i + chunk_size]
+        print(chunk_words)
+        chunks.append(" ".join(chunk_words))
+
+    return chunks
+
+
+def chunk_text(text: str, chunk_size: int, overlap_size: int) -> None:
+    chunks = fixed_size_chunking(text, chunk_size, overlap_size)
+    print(f"Chunking {len(text)} characters")
+    for i, chunk in enumerate(chunks, 1):
+        print(f"{i}. {chunk}")
 
 
 def embed_text(text: str) -> None:
