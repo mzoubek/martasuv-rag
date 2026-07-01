@@ -10,7 +10,7 @@ from .search_utils import (
     BM25_B,
     DEFAULT_SEARCH_LIMIT,
     STOPWORDS_PATH,
-    CACHE_PATH,
+    CACHE_DIR,
     load_movies,
     BM25_K1,
 )
@@ -22,10 +22,10 @@ class InvertedIndex:
         self.docmap: dict[int, object] = {}
         self.term_frequencies: defaultdict[int, Counter] = defaultdict(Counter)
         self.doc_lengths = {}
-        self.indexpath = os.path.join(CACHE_PATH, "index.pkl")
-        self.docmappath = os.path.join(CACHE_PATH, "docmap.pkl")
-        self.termfreqpath = os.path.join(CACHE_PATH, "term_frequencies.pkl")
-        self.doc_lengths_path = os.path.join(CACHE_PATH, "doc_lengths.pkl")
+        self.indexpath = os.path.join(CACHE_DIR, "index.pkl")
+        self.docmappath = os.path.join(CACHE_DIR, "docmap.pkl")
+        self.termfreqpath = os.path.join(CACHE_DIR, "term_frequencies.pkl")
+        self.doc_lengths_path = os.path.join(CACHE_DIR, "doc_lengths.pkl")
 
     def load(self) -> None:
         try:
@@ -45,7 +45,7 @@ class InvertedIndex:
             self.__add_document(doc_id, input_text)
 
     def save(self) -> None:
-        os.makedirs(CACHE_PATH, exist_ok=True)
+        os.makedirs(CACHE_DIR, exist_ok=True)
         pickle.dump(self.index, open(self.indexpath, "wb"))
         pickle.dump(self.docmap, open(self.docmappath, "wb"))
         pickle.dump(self.term_frequencies, open(self.termfreqpath, "wb"))
