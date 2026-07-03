@@ -210,6 +210,36 @@ def enhance_rewrite(query: str) -> str | None:
     return enhanced_query
 
 
+def enhance_expand(query: str) -> str | None:
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+    )
+    response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Expand the user-provided movie search query below with related terms.
+
+                                Add synonyms and related concepts that might appear in movie descriptions.
+                                Keep expansions relevant and focused.
+                                Output only the additional terms; they will be appended to the original query.
+
+                                Examples:
+                                - "scary bear movie" -> "scary horror grizzly bear movie terrifying film"
+                                - "action movie with bear" -> "action thriller bear chase fight adventure"
+                                - "comedy with bear" -> "comedy funny bear humor lighthearted"
+
+                                User query: "{query}"
+                                """,
+            }
+        ],
+    )
+    enhanced_query: str | None = response.choices[0].message.content
+    return enhanced_query
+
+
 def rrf_search_command(query: str, k: int, limit: int, enhance: str):
     documents = load_movies()
     search_instance = HybridSearch(documents)
@@ -220,6 +250,8 @@ def rrf_search_command(query: str, k: int, limit: int, enhance: str):
             enhanced_query = enhance_spell(query)
         case "rewrite":
             enhanced_query = enhance_rewrite(query)
+        case "expand":
+            enhanced_query = enhance_expand(query)
 
     print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
     final_query = enhanced_query if enhanced_query else query
