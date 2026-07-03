@@ -13,6 +13,8 @@ from .search_utils import (
     CACHE_DIR,
     load_movies,
     BM25_K1,
+    SearchResult,
+    format_search_result,
 )
 
 
@@ -106,21 +108,30 @@ class InvertedIndex:
 
     def bm25_search(
         self, query: str, limit: int = DEFAULT_SEARCH_LIMIT
-    ) -> list[tuple[int, float]]:
-        tokens = tokenize_text(query)
-        query_scores: dict[int, float] = {}
-        for token in tokens:
-            if token not in self.index:
-                continue
+    ) -> list[SearchResult]:
+        query_tokens = tokenize_text(query)
 
-            doc_ids: set[int] = self.index[token]
-            for id in doc_ids:
-                query_scores[id] = query_scores.get(id, 0) + self.bm25(id, token)
+        scores: dict[int, float] = {}
+        for doc_id in self.docmap:
+            score = 0.0
+            for token in query_tokens:
+                score += self.bm25(doc_id, token)
+            scores[doc_id] = score
 
-        sorted_scoring = sorted(
-            query_scores.items(), key=lambda pair: pair[1], reverse=True
-        )
-        return sorted_scoring[:limit]
+        sorted_docs = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+
+        results: list[SearchResult] = []
+        for doc_id, score in sorted_docs[:limit]:
+            doc = self.docmap[doc_id]
+            formatted_result = format_search_result(
+                doc_id=doc["id"],
+                title=doc["title"],
+                document=doc["description"],
+                score=score,
+            )
+            results.append(formatted_result)
+
+        return results
 
 
 def tokenize_term(term: str) -> str:

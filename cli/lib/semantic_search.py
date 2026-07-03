@@ -7,6 +7,8 @@ from sentence_transformers import SentenceTransformer
 import numpy as np
 
 from .search_utils import (
+    CHUNK_EMBEDDINGS_PATH,
+    CHUNK_METADATA_PATH,
     DEFAULT_MAX_CHUNK_SIZE,
     DEFAULT_SEARCH_LIMIT,
     DEFAULT_CHUNK_SIZE,
@@ -136,8 +138,8 @@ class ChunkedSemanticSearch(SemanticSearch):
         for doc in documents:
             self.document_map[doc["id"]] = doc
 
-        if os.path.exists("cache/chunk_embeddings.npy") and os.path.exists(
-            "cache/chunk_metadata.json"
+        if os.path.exists(CHUNK_EMBEDDINGS_PATH) and os.path.exists(
+            CHUNK_METADATA_PATH
         ):
             self.chunk_embeddings = np.load("cache/chunk_embeddings.npy")
             self.chunk_metadata = load_metadata()

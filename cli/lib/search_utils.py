@@ -35,6 +35,7 @@ CHUNK_EMBEDDINGS_PATH = os.path.join(CACHE_DIR, "chunk_embeddings.npy")
 CHUNK_METADATA_PATH = os.path.join(CACHE_DIR, "chunk_metadata.json")
 
 SCORE_PRECISION = 3
+ALPHA = 0.5
 
 
 def load_movies() -> list[Movie]:
