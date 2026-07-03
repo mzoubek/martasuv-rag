@@ -1,5 +1,8 @@
 import os
 
+from dotenv import load_dotenv
+from openai import OpenAI
+
 from .search_utils import Movie, load_movies
 
 from .keyword_search import InvertedIndex
@@ -62,7 +65,7 @@ class HybridSearch:
             if not document:
                 document_mapping[res["id"]] = {
                     "title": res["title"],
-                    "description": res["description"][:100],
+                    "description": res["document"][:100],
                     "semantic_score": 0.0,
                     "keyword_score": normalized_score,
                 }
@@ -87,7 +90,99 @@ class HybridSearch:
         return result[:limit]
 
     def rrf_search(self, query: str, k: int, limit: int = 10) -> list[dict]:
-        raise NotImplementedError("RRF hybrid search is not implemented yet.")
+        keyword_results = self._bm25_search(query, limit * 500)
+        semantic_results = self.semantic_search.search_chunks(query, limit * 500)
+
+        document_mapping = {}
+
+        for rank, res in enumerate(semantic_results, start=1):
+            document = document_mapping.get(res["id"])
+            semantic_rank = rrf_score(rank, k)
+            if not document:
+                document_mapping[res["id"]] = {
+                    "title": res["title"],
+                    "description": res["document"],
+                    "semantic_rank": semantic_rank,
+                    "keyword_rank": 0.0,
+                }
+                continue
+
+            if document["semantic_rank"] < semantic_rank:
+                document["semantic_rank"] = semantic_rank
+
+        #
+        #   Keyword results addition
+        #
+        for rank, res in enumerate(keyword_results, start=1):
+            document = document_mapping.get(res["id"])
+            keyword_rank = rrf_score(rank, k)
+            if not document:
+                document_mapping[res["id"]] = {
+                    "title": res["title"],
+                    "description": res["document"][:100],
+                    "semantic_rank": 0.0,
+                    "keyword_rank": keyword_rank,
+                }
+                continue
+
+            if document["keyword_rank"] < keyword_rank:
+                document["keyword_rank"] = keyword_rank
+
+        for doc in document_mapping.values():
+            doc["rrf_score"] = doc["semantic_rank"] + doc["keyword_rank"]
+
+        result = sorted(
+            document_mapping.values(), key=lambda x: x["rrf_score"], reverse=True
+        )
+
+        return result[:limit]
+
+
+def rrf_score(rank: int, k: int = 60) -> float:
+    return 1 / (k + rank)
+
+
+def rrf_search_command(query: str, k: int, limit: int, enhance: str):
+    documents = load_movies()
+    search_instance = HybridSearch(documents)
+
+    enhanced_query: str | None = None
+    if enhance == "spell":
+        load_dotenv()
+        api_key = os.environ.get("OPENROUTER_API_KEY")
+        if not api_key:
+            raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
+        client = OpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+        )
+        response = client.chat.completions.create(
+            model="openrouter/free",
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""Fix any spelling errors in the user-provided movie search query below.
+                                Correct only clear, high-confidence typos. Do not rewrite, add, remove, or reorder words.
+                                Preserve punctuation and capitalization unless a change is required for a typo fix.
+                                If there are no spelling errors, or if you're unsure, output the original query unchanged.
+                                Output only the final query text, nothing else.
+                                User query: "{query}"
+                                """,
+                }
+            ],
+        )
+        enhanced_query = response.choices[0].message.content
+        print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
+
+    final_query = enhanced_query if enhanced_query else query
+    results = search_instance.rrf_search(final_query, k, limit)
+    for i, res in enumerate(results, start=1):
+        print(f"{i}. {res['title']}")
+        print(f"  RRF Score: {res['rrf_score']:.4f}")
+        print(
+            f"  BM25 Rank: {res['keyword_rank']:.4f}, Semantic Rank: {res['semantic_rank']:.4f}"
+        )
+        print(f"  {res['description']}")
 
 
 def weighted_search_command(query: str, alpha: float, limit: int = 5) -> None:

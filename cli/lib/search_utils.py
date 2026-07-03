@@ -37,6 +37,8 @@ CHUNK_METADATA_PATH = os.path.join(CACHE_DIR, "chunk_metadata.json")
 SCORE_PRECISION = 3
 ALPHA = 0.5
 
+K_PARAM = 60
+
 
 def load_movies() -> list[Movie]:
     with open(DATA_PATH, "r") as f:
