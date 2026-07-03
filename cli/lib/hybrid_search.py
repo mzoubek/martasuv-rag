@@ -8,6 +8,11 @@ from .search_utils import Movie, load_movies
 from .keyword_search import InvertedIndex
 from .semantic_search import ChunkedSemanticSearch
 
+load_dotenv()
+api_key = os.environ.get("OPENROUTER_API_KEY")
+if not api_key:
+    raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
+
 
 class HybridSearch:
     def __init__(self, documents: list[Movie]) -> None:
@@ -142,38 +147,81 @@ def rrf_score(rank: int, k: int = 60) -> float:
     return 1 / (k + rank)
 
 
+#
+#   WARNING: duplication of code
+#
+def enhance_spell(query: str) -> str | None:
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+    )
+    response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Fix any spelling errors in the user-provided movie search query below.
+                            Correct only clear, high-confidence typos. Do not rewrite, add, remove, or reorder words.
+                            Preserve punctuation and capitalization unless a change is required for a typo fix.
+                            If there are no spelling errors, or if you're unsure, output the original query unchanged.
+                            Output only the final query text, nothing else.
+                            User query: "{query}"
+                            """,
+            }
+        ],
+    )
+    enhanced_query: str | None = response.choices[0].message.content
+    return enhanced_query
+
+
+def enhance_rewrite(query: str) -> str | None:
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+    )
+    response = client.chat.completions.create(
+        model="openrouter/free",
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Rewrite the user-provided movie search query below to be more specific and searchable.
+
+                                Consider:
+                                - Common movie knowledge (famous actors, popular films)
+                                - Genre conventions (horror = scary, animation = cartoon)
+                                - Keep the rewritten query concise (under 10 words)
+                                - It should be a Google-style search query, specific enough to yield relevant results
+                                - Don't use boolean logic
+
+                                Examples:
+                                - "that bear movie where leo gets attacked" -> "The Revenant Leonardo DiCaprio bear attack"
+                                - "movie about bear in london with marmalade" -> "Paddington London marmalade"
+                                - "scary movie with bear from few years ago" -> "bear horror movie 2015-2020"
+
+                                If you cannot improve the query, output the original unchanged.
+                                Output only the rewritten query text, nothing else.
+
+                                User query: "{query}"
+                                """,
+            }
+        ],
+    )
+    enhanced_query: str | None = response.choices[0].message.content
+    return enhanced_query
+
+
 def rrf_search_command(query: str, k: int, limit: int, enhance: str):
     documents = load_movies()
     search_instance = HybridSearch(documents)
 
     enhanced_query: str | None = None
-    if enhance == "spell":
-        load_dotenv()
-        api_key = os.environ.get("OPENROUTER_API_KEY")
-        if not api_key:
-            raise RuntimeError("OPENROUTER_API_KEY environment variable not set")
-        client = OpenAI(
-            base_url="https://openrouter.ai/api/v1",
-            api_key=api_key,
-        )
-        response = client.chat.completions.create(
-            model="openrouter/free",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""Fix any spelling errors in the user-provided movie search query below.
-                                Correct only clear, high-confidence typos. Do not rewrite, add, remove, or reorder words.
-                                Preserve punctuation and capitalization unless a change is required for a typo fix.
-                                If there are no spelling errors, or if you're unsure, output the original query unchanged.
-                                Output only the final query text, nothing else.
-                                User query: "{query}"
-                                """,
-                }
-            ],
-        )
-        enhanced_query = response.choices[0].message.content
-        print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
+    match enhance:
+        case "spell":
+            enhanced_query = enhance_spell(query)
+        case "rewrite":
+            enhanced_query = enhance_rewrite(query)
 
+    print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
     final_query = enhanced_query if enhanced_query else query
     results = search_instance.rrf_search(final_query, k, limit)
     for i, res in enumerate(results, start=1):
