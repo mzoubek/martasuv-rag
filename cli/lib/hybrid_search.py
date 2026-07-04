@@ -1,4 +1,5 @@
 import os
+import time
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -140,7 +141,7 @@ class HybridSearch:
             document_mapping.values(), key=lambda x: x["rrf_score"], reverse=True
         )
 
-        return result[:limit]
+        return result
 
 
 def rrf_score(rank: int, k: int = 60) -> float:
@@ -240,7 +241,50 @@ def enhance_expand(query: str) -> str | None:
     return enhanced_query
 
 
-def rrf_search_command(query: str, k: int, limit: int, enhance: str):
+def individual_reranking(query: str, results: list[dict]) -> list[dict]:
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+    )
+    for doc in results:
+        response = client.chat.completions.create(
+            model="openrouter/free",
+            # model="poolside/laguna-xs-2.1:free",
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""Rate how well this movie matches the search query.
+
+                                Query: "{query}"
+                                Movie: {doc.get("title", "")} - {doc.get("document", "")}
+
+                                Consider:
+                                - Direct relevance to query
+                                - User intent (what they're looking for)
+                                - Content appropriateness
+
+                                Rate 0-10 (10 = perfect match).
+                                Output ONLY the number in your response, no other text or explanation.
+
+                                Score:""",
+                }
+            ],
+        )
+
+        if response.choices[0].message.content:
+            print(doc)
+            print(response.choices[0].message.content)
+            doc["rerank_score"] = float(response.choices[0].message.content)
+
+        time.sleep(3)
+
+    rerank_result = sorted(results.values(), key=lambda x: x["rrf_score"], reverse=True)
+    return rerank_result
+
+
+def rrf_search_command(
+    query: str, k: int, limit: int, enhance: str, rerank_method: str
+):
     documents = load_movies()
     search_instance = HybridSearch(documents)
 
@@ -255,9 +299,18 @@ def rrf_search_command(query: str, k: int, limit: int, enhance: str):
 
     print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
     final_query = enhanced_query if enhanced_query else query
-    results = search_instance.rrf_search(final_query, k, limit)
-    for i, res in enumerate(results, start=1):
+    # WARNING: if more rerank_methods find different fancy solution
+    final_limit = 5 * limit if rerank_method == "individual" else limit
+    results = search_instance.rrf_search(final_query, k, final_limit)
+
+    match rerank_method:
+        case "individual":
+            results = individual_reranking(query, results)
+
+    for i, res in enumerate(results[:limit], start=1):
         print(f"{i}. {res['title']}")
+        if rerank_method:
+            print(f"  Re-rank Score: {res['rerank_score']:.3f}/10")
         print(f"  RRF Score: {res['rrf_score']:.4f}")
         print(
             f"  BM25 Rank: {res['keyword_rank']:.4f}, Semantic Rank: {res['semantic_rank']:.4f}"
