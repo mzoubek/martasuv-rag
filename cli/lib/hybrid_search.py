@@ -1,5 +1,6 @@
 import os
 import time
+import json
 
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -141,7 +142,7 @@ class HybridSearch:
             document_mapping.values(), key=lambda x: x["rrf_score"], reverse=True
         )
 
-        return result
+        return result[:limit]
 
 
 def rrf_score(rank: int, k: int = 60) -> float:
@@ -249,7 +250,6 @@ def individual_reranking(query: str, results: list[dict]) -> list[dict]:
     for doc in results:
         response = client.chat.completions.create(
             model="openrouter/free",
-            # model="poolside/laguna-xs-2.1:free",
             messages=[
                 {
                     "role": "user",
@@ -272,14 +272,51 @@ def individual_reranking(query: str, results: list[dict]) -> list[dict]:
         )
 
         if response.choices[0].message.content:
-            print(doc)
-            print(response.choices[0].message.content)
             doc["rerank_score"] = float(response.choices[0].message.content)
+        else:
+            doc["rerank_score"] = 0.0
 
         time.sleep(3)
 
-    rerank_result = sorted(results.values(), key=lambda x: x["rrf_score"], reverse=True)
+    rerank_result = sorted(results, key=lambda x: x["rerank_score"], reverse=True)
     return rerank_result
+
+
+def batch_reranking(query: str, results: list[dict]) -> list[dict]:
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+    )
+    for doc in results:
+        response = client.chat.completions.create(
+            model="openrouter/free",
+            messages=[
+                {
+                    "role": "user",
+                    "content": f"""Rank the movies listed below by relevance to the following search query.
+
+                                Query: "{query}"
+
+                                Movies:
+                                {results}
+
+                                Return the movie IDs in order of relevance, best match first.
+
+                                Your response must be a raw JSON array of integers.
+                                Do not wrap the JSON in Markdown. Do not use a ```json code block.
+                                Do not include any explanatory text.
+
+                                For example:
+                                [75, 12, 34, 2, 1]
+
+                                Ranking:""",
+                }
+            ],
+        )
+
+        ranking_list = json.loads(response.choices[0].message.content)
+
+    return ranked_result
 
 
 def rrf_search_command(
@@ -297,17 +334,22 @@ def rrf_search_command(
         case "expand":
             enhanced_query = enhance_expand(query)
 
-    print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
+    if enhance:
+        print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
     final_query = enhanced_query if enhanced_query else query
-    # WARNING: if more rerank_methods find different fancy solution
-    final_limit = 5 * limit if rerank_method == "individual" else limit
-    results = search_instance.rrf_search(final_query, k, final_limit)
+
+    if rerank_method:
+        # NOTE: nice magic number probably add constant dumbass
+        limit *= 5
+    results = search_instance.rrf_search(final_query, k, limit)
 
     match rerank_method:
         case "individual":
             results = individual_reranking(query, results)
+        case "batch":
+            results = batch_reranking(query, results)
 
-    for i, res in enumerate(results[:limit], start=1):
+    for i, res in enumerate(results, start=1):
         print(f"{i}. {res['title']}")
         if rerank_method:
             print(f"  Re-rank Score: {res['rerank_score']:.3f}/10")
