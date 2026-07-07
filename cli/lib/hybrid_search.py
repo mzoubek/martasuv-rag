@@ -7,9 +7,15 @@ from openai import OpenAI
 from sentence_transformers import CrossEncoder
 
 from .search_utils import Movie, load_movies
-
 from .keyword_search import InvertedIndex
 from .semantic_search import ChunkedSemanticSearch
+# NOTE: Switch to logger instead of prints when it makes sense and play with the
+# config a little, so it does not go kaboom with every tiny detail
+# from .logging_config import configure_logging
+# import logging
+
+# logger = logging.getLogger("hybrid_search")
+# configure_logging()
 
 load_dotenv()
 api_key = os.environ.get("OPENROUTER_API_KEY")
@@ -324,7 +330,6 @@ def batch_reranking(query: str, results: list[dict]) -> list[dict]:
         ],
     )
 
-    print(response.choices[0].message.content)
     ranking_list: list[int] = json.loads(response.choices[0].message.content)
 
     results_by_id = {doc["id"]: doc for doc in results}
@@ -350,6 +355,8 @@ def cross_encoder_reranking(query: str, results: list[dict]) -> list[dict]:
 def rrf_search_command(
     query: str, k: int, limit: int, enhance: str, rerank_method: str
 ):
+    print(f"Running RRF search with user query: {query}")
+
     documents = load_movies()
     search_instance = HybridSearch(documents)
 
@@ -362,6 +369,9 @@ def rrf_search_command(
         case "expand":
             enhanced_query = enhance_expand(query)
 
+    if enhanced_query:
+        print(f"Enhanced query: {enhanced_query}")
+
     if enhance:
         print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
     final_query = enhanced_query if enhanced_query else query
@@ -370,7 +380,9 @@ def rrf_search_command(
     if rerank_method:
         og_limit = limit
         limit *= 5
+
     results = search_instance.rrf_search(final_query, k, limit)
+    print(f"RRF search results: {results}")
 
     match rerank_method:
         case "individual":
@@ -380,6 +392,9 @@ def rrf_search_command(
         case "cross_encoder":
             results = cross_encoder_reranking(query, results[:og_limit])
 
+    if rerank_method:
+        print(f"Rerank search results: {results}")
+
     for i, res in enumerate(results, start=1):
         print(f"{i}. {res['title']}")
         match rerank_method:
@@ -388,7 +403,7 @@ def rrf_search_command(
             case "batch":
                 print(f"  Re-rank Rank: {i}")
             case "cross_encoder":
-                print(f"  Cross Encoder Score: {res['rerank_score']}")
+                print(f"  Cross Encoder Score: {res['rerank_score']:.4f}")
         print(f"  RRF Score: {res['rrf_score']:.4f}")
         print(
             f"  BM25 Rank: {res['keyword_rank']:.4f}, Semantic Rank: {res['semantic_rank']:.4f}"
