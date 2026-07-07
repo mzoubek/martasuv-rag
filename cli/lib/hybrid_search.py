@@ -4,6 +4,7 @@ import json
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from sentence_transformers import CrossEncoder
 
 from .search_utils import Movie, load_movies
 
@@ -107,6 +108,7 @@ class HybridSearch:
             semantic_rank = rrf_score(rank, k)
             if not document:
                 document_mapping[res["id"]] = {
+                    "id": res["id"],
                     "title": res["title"],
                     "description": res["document"],
                     "semantic_rank": semantic_rank,
@@ -125,6 +127,7 @@ class HybridSearch:
             keyword_rank = rrf_score(rank, k)
             if not document:
                 document_mapping[res["id"]] = {
+                    "id": res["id"],
                     "title": res["title"],
                     "description": res["document"][:100],
                     "semantic_rank": 0.0,
@@ -287,36 +290,61 @@ def batch_reranking(query: str, results: list[dict]) -> list[dict]:
         base_url="https://openrouter.ai/api/v1",
         api_key=api_key,
     )
+
+    lines: list[str] = []
+    doc_list_str: str = ""
+    # WARNING: only first 100 chars are provided from description, check each method used
     for doc in results:
-        response = client.chat.completions.create(
-            model="openrouter/free",
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""Rank the movies listed below by relevance to the following search query.
+        lines.append(f"ID: {doc['id']} - {doc['title']}: {doc['description']}")
+    doc_list_str = "\n".join(lines)
 
-                                Query: "{query}"
+    response = client.chat.completions.create(
+        model="tencent/hy3:free",
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Rank the movies listed below by relevance to the following search query.
 
-                                Movies:
-                                {results}
+                            Query: "{query}"
 
-                                Return the movie IDs in order of relevance, best match first.
+                            Movies:
+                            {doc_list_str}
 
-                                Your response must be a raw JSON array of integers.
-                                Do not wrap the JSON in Markdown. Do not use a ```json code block.
-                                Do not include any explanatory text.
+                            Return the movie IDs in order of relevance, best match first.
 
-                                For example:
-                                [75, 12, 34, 2, 1]
+                            Your response must be a raw JSON array of integers.
+                            Do not wrap the JSON in Markdown. Do not use a ```json code block.
+                            Do not include any explanatory text.
 
-                                Ranking:""",
-                }
-            ],
-        )
+                            For example:
+                            [75, 12, 34, 2, 1]
 
-        ranking_list = json.loads(response.choices[0].message.content)
+                            Ranking:""",
+            }
+        ],
+    )
 
-    return ranked_result
+    print(response.choices[0].message.content)
+    ranking_list: list[int] = json.loads(response.choices[0].message.content)
+
+    results_by_id = {doc["id"]: doc for doc in results}
+    ranked_results: list[dict] = [results_by_id[movie_id] for movie_id in ranking_list]
+
+    return ranked_results
+
+
+def cross_encoder_reranking(query: str, results: list[dict]) -> list[dict]:
+    cross_encoder = CrossEncoder("cross-encoder/ms-marco-TinyBERT-L2-v2")
+    pairs: list[list[str]] = []
+    for doc in results:
+        pairs.append([query, f"{doc.get('title', '')} - {doc.get('description', '')}"])
+
+    scores = cross_encoder.predict(pairs)
+    for idx, doc in enumerate(results):
+        doc["rerank_score"] = scores[idx]
+
+    ranked_results = sorted(results, key=lambda x: x["rerank_score"], reverse=True)
+    return ranked_results
 
 
 def rrf_search_command(
@@ -338,21 +366,29 @@ def rrf_search_command(
         print(f"Enhanced query ({enhance}): '{query}' -> '{enhanced_query}'\n")
     final_query = enhanced_query if enhanced_query else query
 
+    og_limit = 0
     if rerank_method:
-        # NOTE: nice magic number probably add constant dumbass
+        og_limit = limit
         limit *= 5
     results = search_instance.rrf_search(final_query, k, limit)
 
     match rerank_method:
         case "individual":
-            results = individual_reranking(query, results)
+            results = individual_reranking(query, results[:og_limit])
         case "batch":
-            results = batch_reranking(query, results)
+            results = batch_reranking(query, results[:og_limit])
+        case "cross_encoder":
+            results = cross_encoder_reranking(query, results[:og_limit])
 
     for i, res in enumerate(results, start=1):
         print(f"{i}. {res['title']}")
-        if rerank_method:
-            print(f"  Re-rank Score: {res['rerank_score']:.3f}/10")
+        match rerank_method:
+            case "individual":
+                print(f"  Re-rank Score: {res['rerank_score']:.3f}/10")
+            case "batch":
+                print(f"  Re-rank Rank: {i}")
+            case "cross_encoder":
+                print(f"  Cross Encoder Score: {res['rerank_score']}")
         print(f"  RRF Score: {res['rrf_score']:.4f}")
         print(
             f"  BM25 Rank: {res['keyword_rank']:.4f}, Semantic Rank: {res['semantic_rank']:.4f}"
