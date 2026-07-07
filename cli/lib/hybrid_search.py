@@ -352,8 +352,56 @@ def cross_encoder_reranking(query: str, results: list[dict]) -> list[dict]:
     return ranked_results
 
 
+def llm_judge_evaluation(query: str, results: list[dict]):
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=api_key,
+    )
+
+    lines: list[str] = []
+    doc_list_str: str = ""
+    # WARNING: only first 100 chars are provided from description, check each method used
+    for doc in results:
+        lines.append(f"ID: {doc['id']} - {doc['title']}: {doc['description']}")
+    doc_list_str = "\n".join(lines)
+
+    response = client.chat.completions.create(
+        model="tencent/hy3:free",
+        messages=[
+            {
+                "role": "user",
+                "content": f"""Rate how relevant each result is to this query on a 0-3 scale:
+
+                            Query: "{query}"
+
+                            Results:
+                            {doc_list_str}
+
+                            Scale:
+                            - 3: Highly relevant
+                            - 2: Relevant
+                            - 1: Marginally relevant
+                            - 0: Not relevant
+
+                            Do NOT give any numbers other than 0, 1, 2, or 3.
+
+                            Return ONLY the scores in the same order you were given the documents. Return a valid JSON list, nothing else. For example:
+
+                            [2, 0, 3, 2, 0, 1]""",
+            }
+        ],
+    )
+
+    scores_list: list[int] = json.loads(response.choices[0].message.content)
+
+    for i in range(len(scores_list)):
+        results[i]["evaluation_score"] = scores_list[i]
+
+    return results
+
+
 def rrf_search_command(
-    query: str, k: int, limit: int, enhance: str, rerank_method: str
+    query: str, k: int, limit: int, enhance: str, rerank_method: str, evaluate: bool
 ):
     print(f"Running RRF search with user query: {query}")
 
@@ -382,7 +430,13 @@ def rrf_search_command(
         limit *= 5
 
     results = search_instance.rrf_search(final_query, k, limit)
-    print(f"RRF search results: {results}")
+    print(f"RRF search results: {results}\n")
+    results = llm_judge_evaluation(query, results)
+
+    for idx, doc in enumerate(results, start=1):
+        print(f"{idx}. {doc['title']}: {doc['evaluation_score']}/3")
+        if idx == len(results):
+            print()
 
     match rerank_method:
         case "individual":
