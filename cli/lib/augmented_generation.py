@@ -67,6 +67,26 @@ def generate_answer(search_results, query, method: str, limit=5):
             - Be direct and informative
 
             Answer:"""
+        case "question":
+            prompt = f"""Answer the following question based on the provided documents.
+
+            Question: {query}
+
+            Documents:
+            {context}
+
+            General instructions:
+            - Answer directly and concisely
+            - Use only information from the documents
+            - If the answer isn't in the documents, say "I don't have enough information"
+            - Cite sources when possible
+
+            Guidance on types of questions:
+            - Factual questions: Provide a direct answer
+            - Analytical questions: Compare and contrast information from the documents
+            - Opinion-based questions: Acknowledge subjectivity and provide a balanced view
+
+            Answer:"""
 
     response = client.chat.completions.create(
         model=model, messages=[{"role": "user", "content": prompt}]
@@ -74,8 +94,7 @@ def generate_answer(search_results, query, method: str, limit=5):
     return (response.choices[0].message.content or "").strip()
 
 
-# WARNING: pretty much duplicate code below, think!
-def rag(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
+def rag(method: str, query: str, limit: int = DEFAULT_SEARCH_LIMIT):
     documents = load_movies()
     search_instance = HybridSearch(documents)
 
@@ -86,38 +105,6 @@ def rag(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
     if not search_results:
         return {"query": query, "search_results": [], "error": "No results found"}
 
-    answer = generate_answer(search_results, query, "rag", limit)
-
-    return {"query": query, "search_results": search_results[:limit], "answer": answer}
-
-
-def summarize(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
-    documents = load_movies()
-    search_instance = HybridSearch(documents)
-
-    search_results = search_instance.rrf_search(
-        query, k=RRF_K, limit=5 * SEARCH_MULTIPLIER
-    )
-
-    if not search_results:
-        return {"query": query, "search_results": [], "error": "No results found"}
-
-    answer = generate_answer(search_results, query, "summarize", limit)
-
-    return {"query": query, "search_results": search_results[:limit], "answer": answer}
-
-
-def citations(query: str, limit: int = DEFAULT_SEARCH_LIMIT):
-    documents = load_movies()
-    search_instance = HybridSearch(documents)
-
-    search_results = search_instance.rrf_search(
-        query, k=RRF_K, limit=5 * SEARCH_MULTIPLIER
-    )
-
-    if not search_results:
-        return {"query": query, "search_results": [], "error": "No results found"}
-
-    answer = generate_answer(search_results, query, "citations", limit)
+    answer = generate_answer(search_results, query, method, limit)
 
     return {"query": query, "search_results": search_results[:limit], "answer": answer}

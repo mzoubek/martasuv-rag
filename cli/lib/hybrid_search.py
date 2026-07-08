@@ -135,7 +135,7 @@ class HybridSearch:
                 document_mapping[res["id"]] = {
                     "id": res["id"],
                     "title": res["title"],
-                    "description": res["document"][:100],
+                    "description": res["document"],
                     "semantic_rank": 0.0,
                     "keyword_rank": keyword_rank,
                 }

@@ -189,7 +189,7 @@ class ChunkedSemanticSearch(SemanticSearch):
                 {
                     "id": document["id"],
                     "title": document["title"],
-                    "document": document["description"][:100],
+                    "document": document["description"],
                     "score": score,
                 }
             )

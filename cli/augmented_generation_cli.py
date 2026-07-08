@@ -1,7 +1,7 @@
 import argparse
 
 from lib.search_utils import DEFAULT_SEARCH_LIMIT
-from lib.augmented_generation import rag, summarize, citations
+from lib.augmented_generation import rag
 
 
 def main() -> None:
@@ -41,11 +41,23 @@ def main() -> None:
         default=DEFAULT_SEARCH_LIMIT,
     )
 
+    question_parser = subparsers.add_parser(
+        "question",
+        help="Ask question and get relevant answer based on retrieved documents",
+    )
+    question_parser.add_argument("query", type=str, help="Search query for RAG")
+    question_parser.add_argument(
+        "--limit",
+        type=int,
+        help="Limit of retrieved results",
+        default=DEFAULT_SEARCH_LIMIT,
+    )
+
     args = parser.parse_args()
 
     match args.command:
         case "rag":
-            result = rag(args.query, args.limit)
+            result = rag(args.command, args.query, args.limit)
             print("Search Results:")
             for doc in result["search_results"]:
                 print(f"- {doc['title']}")
@@ -53,7 +65,7 @@ def main() -> None:
             print("RAG Response:")
             print(f"{result['answer']}")
         case "summarize":
-            result = summarize(args.query, args.limit)
+            result = rag(args.command, args.query, args.limit)
             print("Search Results:")
             for doc in result["search_results"]:
                 print(f"- {doc['title']}")
@@ -61,12 +73,20 @@ def main() -> None:
             print("LLM Summary:")
             print(f"{result['answer']}")
         case "citations":
-            result = citations(args.query, args.limit)
+            result = rag(args.command, args.query, args.limit)
             print("Search Results:")
             for doc in result["search_results"]:
                 print(f"- {doc['title']}")
             print()
             print("LLM Answer:")
+            print(f"{result['answer']}")
+        case "question":
+            result = rag(args.command, args.query, args.limit)
+            print("Search Results:")
+            for doc in result["search_results"]:
+                print(f"- {doc['title']}")
+            print()
+            print("Answer:")
             print(f"{result['answer']}")
         case _:
             parser.print_help()
