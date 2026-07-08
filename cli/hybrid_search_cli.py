@@ -1,5 +1,5 @@
 import argparse
-from lib.search_utils import ALPHA, DEFAULT_SEARCH_LIMIT, K_PARAM
+from lib.search_utils import ALPHA, DEFAULT_SEARCH_LIMIT, RRF_K
 from lib.hybrid_search import (
     normalize_command,
     weighted_search_command,
@@ -44,7 +44,7 @@ def main() -> None:
         "-k",
         type=int,
         help="K constant which controls how much more weight is given to higher-ranked vs lower-ranked results",
-        default=K_PARAM,
+        default=RRF_K,
     )
     rrf_search_parser.add_argument(
         "--limit",
